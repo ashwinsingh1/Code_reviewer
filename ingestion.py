@@ -85,11 +85,12 @@ def _detect_language(path: str) -> str:
 
 # ── GitHub URL normalisation & zip download ───────────────────
 
+# Match github.com/owner/repo — tolerates trailing /tree/branch, /blob/..., .git, etc.
 _GITHUB_RE = re.compile(
-    r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+    r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?(?:/.*)?$"
 )
 _GITLAB_RE = re.compile(
-    r"https?://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+    r"https?://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?(?:/.*)?$"
 )
 
 
@@ -100,8 +101,21 @@ def _download_github_zip(owner: str, repo: str) -> bytes:
         headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
     req = urllib.request.Request(url, headers=headers)
     logger.info("Downloading GitHub zip: %s/%s", owner, repo)
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            token_hint = " (if this is a private repo, set GITHUB_TOKEN in your .env file)" if not settings.GITHUB_TOKEN else ""
+            raise ValueError(
+                f"Repository '{owner}/{repo}' not found on GitHub{token_hint}. "
+                "Check that the URL is correct and the repo is public."
+            ) from exc
+        if exc.code == 401:
+            raise ValueError(
+                "GitHub authentication failed. Check your GITHUB_TOKEN in .env."
+            ) from exc
+        raise ValueError(f"GitHub returned HTTP {exc.code}: {exc.reason}") from exc
 
 
 def _download_gitlab_zip(owner: str, repo: str) -> bytes:
