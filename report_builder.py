@@ -159,6 +159,26 @@ tr:nth-child(even) td{background:var(--surface);}
 
 footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);
        text-align:center;font-size:11px;color:var(--muted);}
+
+/* pdf / print button */
+.pdf-bar{position:sticky;top:0;z-index:50;background:#fff;
+         border-bottom:1px solid var(--border);padding:8px 0 8px;
+         display:flex;gap:8px;margin-bottom:24px;}
+.pdf-btn{padding:7px 18px;border-radius:6px;font-size:13px;font-weight:700;
+         cursor:pointer;border:none;}
+.pdf-btn-primary{background:#3b82d4;color:#fff;}
+.pdf-btn-primary:hover{opacity:.85;}
+.pdf-btn-ghost{background:var(--surface);color:var(--text);border:1px solid var(--border);}
+.pdf-btn-ghost:hover{border-color:#3b82d4;color:#3b82d4;}
+
+@media print{
+  .pdf-bar{display:none !important;}
+  .filter-bar{display:none !important;}
+  .finding-body{display:block !important;}
+  body{max-width:100%;padding:16px;}
+  h2{page-break-before:auto;}
+  .finding{page-break-inside:avoid;}
+}
 """
 
 # ── JS (collapse + filter) ────────────────────────────────────
@@ -382,6 +402,11 @@ def build_html_report(report: ReviewReport) -> str:
 <style>{CSS}</style>
 </head>
 <body>
+
+<div class="pdf-bar">
+  <button class="pdf-btn pdf-btn-primary" onclick="window.print()">⬇ Download as PDF</button>
+  <button class="pdf-btn pdf-btn-ghost" onclick="window.close()">✕ Close</button>
+</div>
 
 <h1>Enterprise Code Review Report</h1>
 <div class="meta">

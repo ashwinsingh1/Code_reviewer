@@ -115,9 +115,9 @@ class ReviewReport(BaseModel):
 # ── API request / response ────────────────────────────────────
 
 class ReviewRequest(BaseModel):
-    source_type: Literal["github", "zip_base64"] = "github"
-    url:         Optional[str] = Field(None, description="GitHub/GitLab repo URL")
+    source_type: Literal["zip", "folder"] = "zip"
     zip_base64:  Optional[str] = Field(None, description="Base64-encoded zip content")
+    folder_path: Optional[str] = Field(None, description="Absolute or relative local folder path")
     repo_name:   Optional[str] = None
 
 

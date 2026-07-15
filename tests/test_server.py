@@ -2,10 +2,10 @@
 Integration tests for the Code Review Automation FastAPI server.
 Uses httpx TestClient — no real Claude calls (mocked).
 """
-import json
 import sys
+import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +20,7 @@ def _make_mock_report():
     from models import ReviewReport, Scorecard
     return ReviewReport(
         repo_name="test_repo",
-        repo_source="github",
+        repo_source="zip",
         languages=["Python"],
         frameworks=["FastAPI"],
         file_count=5,
@@ -65,17 +65,23 @@ def test_root_serves_html(client):
     assert "Code Review" in resp.text
 
 
-def test_start_review_missing_url(client):
-    resp = client.post("/api/review", json={"source_type": "github"})
+def test_start_review_missing_folder_path(client):
+    resp = client.post("/api/review", json={"source_type": "folder"})
     assert resp.status_code == 400
 
 
-def test_start_review_queues_job(client):
-    with patch("server._run_review_job"):   # prevent actual execution
-        resp = client.post("/api/review", json={
-            "source_type": "github",
-            "url": "https://github.com/owner/repo",
-        })
+def test_start_review_missing_zip_base64(client):
+    resp = client.post("/api/review", json={"source_type": "zip"})
+    assert resp.status_code == 400
+
+
+def test_start_folder_review_queues_job(client):
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch("server._run_review_job"):   # prevent actual execution
+            resp = client.post("/api/review", json={
+                "source_type": "folder",
+                "folder_path": tmp,
+            })
     assert resp.status_code == 200
     data = resp.json()
     assert "job_id" in data
@@ -88,11 +94,12 @@ def test_get_unknown_job(client):
 
 
 def test_download_html_not_ready(client):
-    with patch("server._run_review_job"):
-        resp = client.post("/api/review", json={
-            "source_type": "github",
-            "url": "https://github.com/owner/repo",
-        })
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch("server._run_review_job"):
+            resp = client.post("/api/review", json={
+                "source_type": "folder",
+                "folder_path": tmp,
+            })
     job_id = resp.json()["job_id"]
     resp2 = client.get(f"/api/review/{job_id}/html")
     assert resp2.status_code == 400   # not done yet
@@ -102,18 +109,18 @@ def test_full_review_cycle(client):
     """Simulate a complete review cycle with mocked reviewer."""
     mock_report = _make_mock_report()
 
-    with patch("server._run_review_job") as mock_job:
-        # Start the job
-        resp = client.post("/api/review", json={
-            "source_type": "github",
-            "url": "https://github.com/owner/repo",
-        })
-        job_id = resp.json()["job_id"]
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch("server._run_review_job") as mock_job:
+            resp = client.post("/api/review", json={
+                "source_type": "folder",
+                "folder_path": tmp,
+            })
+            job_id = resp.json()["job_id"]
 
-        # Manually mark the job as done with our mock report
-        import server as srv
-        srv._jobs[job_id].status = "done"
-        srv._jobs[job_id].report = mock_report
+            # Manually mark the job as done with our mock report
+            import server as srv
+            srv._jobs[job_id].status = "done"
+            srv._jobs[job_id].report = mock_report
 
     # Poll status
     resp2 = client.get(f"/api/review/{job_id}")

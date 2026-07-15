@@ -1,12 +1,11 @@
 """
-Tests for the ingestion module — no network calls (mocked).
+Tests for the ingestion module — no network calls.
 """
 import io
-import json
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -107,25 +106,48 @@ def test_ingest_zip_base64_invalid():
         ingest_zip_base64("NOT_VALID_BASE64!!!", "repo")
 
 
-def test_ingest_github_bad_url():
-    from ingestion import ingest_github_url
-    with pytest.raises(ValueError, match="Unrecognised URL"):
-        ingest_github_url("https://bitbucket.org/owner/repo")
+def test_ingest_folder_basic():
+    from ingestion import ingest_folder
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "app.py").write_text("print('hello')", encoding="utf-8")
+        (root / "README.md").write_text("# Hello", encoding="utf-8")
+        name, files = ingest_folder(tmp, "my_project")
+    assert name == "my_project"
+    paths = [f.path for f in files]
+    assert "app.py" in paths
+    assert "README.md" in paths
 
 
-def test_ingest_github_url_downloads(monkeypatch):
-    """Mock the HTTP download and verify parsing."""
-    import base64
-    from ingestion import ingest_github_url
-    data = _make_zip({"service.py": "class Service: pass"})
+def test_ingest_folder_skips_pycache():
+    from ingestion import ingest_folder
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "main.py").write_text("x = 1", encoding="utf-8")
+        pycache = root / "__pycache__"
+        pycache.mkdir()
+        (pycache / "main.cpython-311.pyc").write_bytes(b"binary")
+        _, files = ingest_folder(tmp)
+    assert all("__pycache__" not in f.path for f in files)
 
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = data
-    mock_resp.__enter__ = lambda s: s
-    mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
-        name, files = ingest_github_url("https://github.com/owner/myrepo")
+def test_ingest_folder_uses_dirname_as_default_name():
+    from ingestion import ingest_folder
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "app.py").write_text("x=1", encoding="utf-8")
+        name, _ = ingest_folder(tmp)
+    assert name == root.name
 
-    assert name == "myrepo"
-    assert any(f.path == "service.py" for f in files)
+
+def test_ingest_folder_not_found():
+    from ingestion import ingest_folder
+    with pytest.raises(ValueError, match="Folder not found"):
+        ingest_folder("/nonexistent/path/that/does/not/exist")
+
+
+def test_ingest_folder_not_a_directory():
+    from ingestion import ingest_folder
+    with tempfile.NamedTemporaryFile(suffix=".py") as f:
+        with pytest.raises(ValueError, match="not a directory"):
+            ingest_folder(f.name)

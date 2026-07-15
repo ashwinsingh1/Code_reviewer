@@ -15,13 +15,12 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import anthropic
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 
 from config import settings
-from ingestion import ingest_github_url, ingest_zip_base64
+from ingestion import ingest_folder, ingest_zip_base64
 from models import ReviewReport, ReviewRequest, ReviewStatusResponse
 from report_builder import build_html_report
 from reviewer import run_review
@@ -38,8 +37,8 @@ logger = logging.getLogger(__name__)
 # ── App ───────────────────────────────────────────────────────
 app = FastAPI(
     title="Enterprise Code Review Automation",
-    description="AI-powered code review using Claude-3.5-Sonnet",
-    version="1.0.0",
+    description="Automated code review using local static analysis",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -57,7 +56,7 @@ _executor = ThreadPoolExecutor(max_workers=3)
 
 # ── Background review worker ──────────────────────────────────
 
-def _run_review_job(job_id: str, source_type: str, url: Optional[str],
+def _run_review_job(job_id: str, source_type: str, folder_path: Optional[str],
                     zip_base64: Optional[str], repo_name: Optional[str]) -> None:
     job = _jobs[job_id]
     job.status = "running"
@@ -67,15 +66,22 @@ def _run_review_job(job_id: str, source_type: str, url: Optional[str],
         logger.info("[%s] %s", job_id, msg)
 
     try:
-        _progress("Fetching repository…")
-        if source_type == "github":
-            name, files = ingest_github_url(url)
+        _progress("Ingesting source files…")
+        if source_type == "folder":
+            name, files = ingest_folder(folder_path, repo_name or "")
         else:
             name = repo_name or "uploaded_repo"
             _, files = ingest_zip_base64(zip_base64, name)
 
         if not files:
             raise ValueError("No reviewable source files found in the repository.")
+
+        # Tell the user which review engine will be used
+        from config import settings as _s
+        if _s.GROQ_API_KEY:
+            _progress("Using Groq AI (cloud) for review…")
+        else:
+            _progress("No AI model configured — using built-in static analysis…")
 
         report = run_review(
             files=files,
@@ -88,10 +94,6 @@ def _run_review_job(job_id: str, source_type: str, url: Optional[str],
         job.progress = "Review complete!"
         logger.info("[%s] Review done — %d findings", job_id, len(report.findings))
 
-    except anthropic.AuthenticationError:
-        job.status = "error"
-        job.error = "Invalid Anthropic API key. Check your ANTHROPIC_API_KEY in .env"
-        logger.error("[%s] Auth error", job_id)
     except Exception as exc:
         job.status = "error"
         job.error = str(exc)
@@ -108,10 +110,10 @@ def health():
 @app.post("/api/review", response_model=ReviewStatusResponse)
 def start_review(req: ReviewRequest):
     """Start an async review job. Returns a job_id to poll."""
-    if req.source_type == "github" and not req.url:
-        raise HTTPException(400, detail="url is required for source_type=github")
-    if req.source_type == "zip_base64" and not req.zip_base64:
-        raise HTTPException(400, detail="zip_base64 is required for source_type=zip_base64")
+    if req.source_type == "folder" and not req.folder_path:
+        raise HTTPException(400, detail="folder_path is required for source_type=folder")
+    if req.source_type == "zip" and not req.zip_base64:
+        raise HTTPException(400, detail="zip_base64 is required for source_type=zip")
 
     job_id = str(uuid.uuid4())
     status = ReviewStatusResponse(job_id=job_id, status="queued", progress="Queued…")
@@ -121,11 +123,11 @@ def start_review(req: ReviewRequest):
         _run_review_job,
         job_id,
         req.source_type,
-        req.url,
+        req.folder_path,
         req.zip_base64,
         req.repo_name,
     )
-    logger.info("Review job queued: id=%s source=%s url=%s", job_id, req.source_type, req.url)
+    logger.info("Review job queued: id=%s source=%s", job_id, req.source_type)
     return status
 
 
@@ -162,6 +164,17 @@ def get_status(job_id: str):
     if not job:
         raise HTTPException(404, detail="Job not found")
     return job
+
+
+@app.get("/api/review/{job_id}/view", response_class=HTMLResponse)
+def view_report(job_id: str):
+    """Serve the finished report inline in the browser."""
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="Job not found")
+    if job.status != "done" or not job.report:
+        raise HTTPException(400, detail="Report not ready yet")
+    return build_html_report(job.report)
 
 
 @app.get("/api/review/{job_id}/html", response_class=Response)

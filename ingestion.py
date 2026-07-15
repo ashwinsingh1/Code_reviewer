@@ -1,8 +1,7 @@
 """
 Repository Ingestion — fetch and parse source files from:
-  • GitHub / GitLab public URL  (clones via API zip download)
   • Base64-encoded zip upload
-  • Local folder path (internal use / testing)
+  • Local folder path
 
 Returns a flat list of SourceFile objects ready for the review engine.
 """
@@ -12,9 +11,6 @@ import base64
 import io
 import logging
 import os
-import re
-import urllib.request
-import urllib.error
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,49 +79,6 @@ def _detect_language(path: str) -> str:
     return _EXT_TO_LANG.get(ext, "")
 
 
-# ── GitHub URL normalisation & zip download ───────────────────
-
-# Match github.com/owner/repo — tolerates trailing /tree/branch, /blob/..., .git, etc.
-_GITHUB_RE = re.compile(
-    r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?(?:/.*)?$"
-)
-_GITLAB_RE = re.compile(
-    r"https?://gitlab\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?(?:/.*)?$"
-)
-
-
-def _download_github_zip(owner: str, repo: str) -> bytes:
-    url = f"https://api.github.com/repos/{owner}/{repo}/zipball/HEAD"
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "code-reviewer/1.0"}
-    if settings.GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
-    req = urllib.request.Request(url, headers=headers)
-    logger.info("Downloading GitHub zip: %s/%s", owner, repo)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.read()
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            token_hint = " (if this is a private repo, set GITHUB_TOKEN in your .env file)" if not settings.GITHUB_TOKEN else ""
-            raise ValueError(
-                f"Repository '{owner}/{repo}' not found on GitHub{token_hint}. "
-                "Check that the URL is correct and the repo is public."
-            ) from exc
-        if exc.code == 401:
-            raise ValueError(
-                "GitHub authentication failed. Check your GITHUB_TOKEN in .env."
-            ) from exc
-        raise ValueError(f"GitHub returned HTTP {exc.code}: {exc.reason}") from exc
-
-
-def _download_gitlab_zip(owner: str, repo: str) -> bytes:
-    slug = urllib.request.quote(f"{owner}/{repo}", safe="")
-    url = f"https://gitlab.com/api/v4/projects/{slug}/repository/archive.zip"
-    logger.info("Downloading GitLab zip: %s/%s", owner, repo)
-    with urllib.request.urlopen(url, timeout=60) as resp:
-        return resp.read()
-
-
 # ── Zip extraction ────────────────────────────────────────────
 
 def _extract_zip(data: bytes) -> list[SourceFile]:
@@ -182,27 +135,59 @@ def _extract_zip(data: bytes) -> list[SourceFile]:
 
 # ── Public API ────────────────────────────────────────────────
 
-def ingest_github_url(url: str) -> tuple[str, list[SourceFile]]:
+def ingest_folder(folder_path: str, repo_name: str = "") -> tuple[str, list[SourceFile]]:
     """
-    Download and parse a GitHub or GitLab repository URL.
+    Walk a local folder and collect reviewable source files.
     Returns (repo_name, [SourceFile, ...]).
     """
-    m = _GITHUB_RE.match(url.strip())
-    if m:
-        owner, repo = m["owner"], m["repo"]
-        data = _download_github_zip(owner, repo)
-        return repo, _extract_zip(data)
+    root = Path(folder_path).resolve()
+    if not root.exists():
+        raise ValueError(f"Folder not found: {folder_path!r}")
+    if not root.is_dir():
+        raise ValueError(f"Path is not a directory: {folder_path!r}")
 
-    m = _GITLAB_RE.match(url.strip())
-    if m:
-        owner, repo = m["owner"], m["repo"]
-        data = _download_gitlab_zip(owner, repo)
-        return repo, _extract_zip(data)
+    name = repo_name or root.name
+    files: list[SourceFile] = []
 
-    raise ValueError(
-        f"Unrecognised URL format: {url!r}\n"
-        "Supported: https://github.com/owner/repo  or  https://gitlab.com/owner/repo"
-    )
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+
+        # Skip blacklisted directories
+        parts = path.relative_to(root).parts
+        if any(p in SKIP_DIRS for p in parts):
+            continue
+
+        ext = path.suffix.lower()
+        basename = path.name.lower()
+        if ext not in INCLUDE_EXTENSIONS and basename not in ("dockerfile", "containerfile", "makefile"):
+            continue
+
+        size = path.stat().st_size
+        if size > settings.MAX_FILE_BYTES:
+            logger.debug("Skipping large file: %s (%d bytes)", path, size)
+            continue
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            logger.warning("Could not read %s: %s", path, exc)
+            continue
+
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        files.append(SourceFile(
+            path=rel,
+            content=content,
+            size_bytes=size,
+            language=_detect_language(rel),
+        ))
+
+        if len(files) >= settings.MAX_FILES:
+            logger.warning("MAX_FILES (%d) reached — truncating.", settings.MAX_FILES)
+            break
+
+    logger.info("Collected %d files from folder: %s", len(files), root)
+    return name, files
 
 
 def ingest_zip_base64(b64: str, repo_name: str = "uploaded_repo") -> tuple[str, list[SourceFile]]:
