@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Enterprise Code Review Automation</title>
+<style>
+  :root {
+    --bg:#f5f6fa; --surface:#ffffff; --surface2:#f0f1f6;
+    --border:#e2e4ec; --accent:#4f46e5; --accent2:#0891b2;
+    --text:#1a1a2e; --muted:#6b7280;
+    --success:#059669; --warning:#d97706; --danger:#dc2626;
+    --radius:12px; --radius-sm:8px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:-apple-system,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg); color:var(--text);
+    min-height:100vh; display:flex; flex-direction:column;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    background:var(--surface); border-bottom:1px solid var(--border);
+    padding:18px 40px; display:flex; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:100;
+  }
+  .logo { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:800; letter-spacing:-.5px; }
+  .logo-dot { width:10px; height:10px; border-radius:50%; background:var(--accent);
+               box-shadow:0 0 10px var(--accent); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.4)} }
+  .topbar-sub { font-size:12px; color:var(--muted); }
+
+  /* ── Main layout ── */
+  .container { max-width:860px; margin:0 auto; padding:40px 24px 80px; width:100%; }
+
+  /* ── Hero ── */
+  .hero { text-align:center; margin-bottom:40px; }
+  .hero h1 { font-size:32px; font-weight:800; letter-spacing:-.5px; margin-bottom:8px; }
+  .hero p { font-size:15px; color:var(--muted); max-width:560px; margin:0 auto; }
+
+  /* ── Cards ── */
+  .card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:28px 32px; margin-bottom:20px;
+  }
+  .card-title { font-size:13px; font-weight:700; text-transform:uppercase;
+                letter-spacing:1px; color:var(--muted); margin-bottom:18px; }
+
+  /* ── Tabs ── */
+  .tabs { display:flex; gap:4px; background:var(--surface2); padding:4px;
+          border-radius:var(--radius-sm); width:fit-content; margin-bottom:20px; }
+  .tab { padding:8px 20px; border-radius:6px; font-size:13px; font-weight:600;
+         cursor:pointer; color:var(--muted); transition:all .15s; }
+  .tab.active { background:var(--surface); color:var(--text); box-shadow:0 1px 4px rgba(0,0,0,.15); }
+
+  /* ── Inputs ── */
+  .input {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:var(--radius-sm); color:var(--text);
+    padding:12px 16px; font-size:14px; outline:none;
+    transition:border-color .15s; width:100%;
+  }
+  .input:focus { border-color:var(--accent); }
+  .input::placeholder { color:var(--muted); }
+  .input-row { display:flex; gap:10px; }
+  .input-grow { flex:1; }
+
+  /* ── Buttons ── */
+  .btn {
+    padding:12px 24px; border-radius:var(--radius-sm);
+    font-size:14px; font-weight:700; cursor:pointer;
+    border:none; transition:all .15s; white-space:nowrap;
+  }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { opacity:.85; }
+  .btn-primary:disabled { opacity:.4; cursor:not-allowed; }
+  .btn-ghost { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+  .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+
+  /* ── Upload zone ── */
+  .upload-zone {
+    border:2px dashed var(--border); border-radius:var(--radius);
+    padding:32px; text-align:center; cursor:pointer;
+    transition:all .15s; background:var(--surface2);
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color:var(--accent); background:rgba(79,70,229,.04);
+  }
+  .upload-icon { font-size:32px; margin-bottom:8px; }
+  .upload-text { font-size:14px; font-weight:600; margin-bottom:4px; }
+  .upload-sub { font-size:12px; color:var(--muted); }
+  #file-input { display:none; }
+
+  /* ── Progress ── */
+  .progress-card { display:none; }
+  .progress-card.show { display:block; }
+  .progress-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .spinner {
+    width:20px; height:20px; border-radius:50%;
+    border:3px solid var(--border); border-top-color:var(--accent);
+    animation:spin .6s linear infinite; flex-shrink:0;
+  }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  .progress-label { font-size:14px; font-weight:600; }
+  .progress-status { font-size:13px; color:var(--muted); margin-top:4px; }
+  .progress-bar-track { background:var(--surface2); border-radius:4px; height:6px; margin-top:12px; }
+  .progress-bar-fill {
+    height:6px; border-radius:4px; background:var(--accent);
+    transition:width .5s; width:5%;
+  }
+
+  /* ── Result ── */
+  .result-card { display:none; }
+  .result-card.show { display:block; }
+  .result-header { display:flex; align-items:center; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+  .result-score {
+    font-size:48px; font-weight:900; line-height:1;
+    min-width:80px; text-align:center;
+  }
+  .score-good { color:var(--success); }
+  .score-mid  { color:var(--warning); }
+  .score-low  { color:var(--danger); }
+  .result-meta { flex:1; }
+  .result-title { font-size:20px; font-weight:700; margin-bottom:6px; }
+  .result-verdict {
+    display:inline-block; font-size:12px; font-weight:700;
+    padding:4px 12px; border-radius:20px; text-transform:uppercase; letter-spacing:.5px;
+  }
+  .verdict-pass { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+  .verdict-warn { background:#fef9c3; color:#854d0e; border:1px solid #fde047; }
+  .verdict-fail { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+
+  /* ── Stats row ── */
+  .stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+  .stat { background:var(--surface2); border:1px solid var(--border);
+          border-radius:var(--radius-sm); padding:14px 16px; }
+  .stat-num { font-size:24px; font-weight:800; color:var(--accent); }
+  .stat-label { font-size:11px; color:var(--muted); font-weight:600; margin-top:2px; }
+
+  /* ── Findings summary ── */
+  .sev-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .sev-chip {
+    font-size:11px; font-weight:700; padding:3px 10px;
+    border-radius:20px; text-transform:uppercase;
+  }
+  .sev-critical { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+  .sev-high     { background:#ffedd5; color:#9a3412; border:1px solid #fdba74; }
+  .sev-medium   { background:#fef9c3; color:#854d0e; border:1px solid #fde047; }
+  .sev-low      { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+  .sev-info     { background:#e0f2fe; color:#0c4a6e; border:1px solid #7dd3fc; }
+
+  /* ── Download buttons ── */
+  .dl-row { display:flex; gap:10px; flex-wrap:wrap; }
+
+  /* ── Error ── */
+  .error-card { display:none; }
+  .error-card.show {
+    display:block; background:#fff5f5; border:1px solid #fca5a5;
+    border-radius:var(--radius); padding:20px 24px;
+  }
+  .error-title { font-weight:700; color:var(--danger); margin-bottom:8px; }
+  .error-msg { font-size:13px; color:var(--text); font-family:monospace; white-space:pre-wrap; word-break:break-all; }
+
+  /* ── Toast ── */
+  .toast-container { position:fixed; bottom:24px; right:24px;
+                      display:flex; flex-direction:column; gap:8px; z-index:999; }
+  .toast {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:12px 18px;
+    font-size:13px; display:flex; align-items:center; gap:10px;
+    animation:slideIn .25s ease; min-width:240px;
+    box-shadow:0 4px 20px rgba(0,0,0,.15);
+  }
+  .toast.success { border-left:3px solid var(--success); }
+  .toast.error   { border-left:3px solid var(--danger); }
+  @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+  footer { text-align:center; font-size:12px; color:var(--muted);
+           padding:24px; border-top:1px solid var(--border); margin-top:auto; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    Code Review AI
+  </div>
+  <div class="topbar-sub">Enterprise Code Review Automation · Powered by Claude-3.5-Sonnet</div>
+</div>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Enterprise Code Review</h1>
+    <p>Paste a GitHub or GitLab URL — or upload a zip file — and get a comprehensive AI-powered enterprise code review in seconds.</p>
+  </div>
+
+  <!-- Input card -->
+  <div class="card" id="input-card">
+    <div class="card-title">Submit Repository for Review</div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" id="tab-url" onclick="switchTab('url')">GitHub / GitLab URL</div>
+      <div class="tab" id="tab-zip" onclick="switchTab('zip')">Upload ZIP</div>
+    </div>
+
+    <!-- URL panel -->
+    <div id="panel-url">
+      <div class="input-row">
+        <input
+          id="repo-url"
+          class="input input-grow"
+          placeholder="https://github.com/owner/repository"
+          onkeydown="if(event.key==='Enter') startReview()"
+        />
+        <button class="btn btn-primary" id="btn-review-url" onclick="startReview()">
+          ⚡ Review
+        </button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;">
+        Supports public GitHub and GitLab repositories. For private repos, set <code>GITHUB_TOKEN</code> in your <code>.env</code> file.
+      </div>
+    </div>
+
+    <!-- ZIP panel -->
+    <div id="panel-zip" style="display:none;">
+      <div class="upload-zone" id="drop-zone"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="handleDrop(event)">
+        <div class="upload-icon">📦</div>
+        <div class="upload-text" id="upload-text">Drop your ZIP here or click to browse</div>
+        <div class="upload-sub">Supports .zip files up to 50 MB</div>
+      </div>
+      <input type="file" id="file-input" accept=".zip" onchange="handleFileSelect(event)"/>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+        <input id="zip-repo-name" class="input input-grow" placeholder="Project name (optional)" />
+        <button class="btn btn-primary" id="btn-review-zip" onclick="startZipReview()" disabled>
+          ⚡ Review
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress card -->
+  <div class="card progress-card" id="progress-card">
+    <div class="progress-header">
+      <div class="spinner"></div>
+      <div>
+        <div class="progress-label">Reviewing repository…</div>
+        <div class="progress-status" id="progress-status">Initialising…</div>
+      </div>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- Error card -->
+  <div class="error-card" id="error-card">
+    <div class="error-title">⚠ Review Failed</div>
+    <div class="error-msg" id="error-msg"></div>
+    <button class="btn btn-ghost" style="margin-top:12px;" onclick="resetUI()">Try Again</button>
+  </div>
+
+  <!-- Result card -->
+  <div class="card result-card" id="result-card">
+    <div class="result-header">
+      <div class="result-score" id="result-score">—</div>
+      <div class="result-meta">
+        <div class="result-title" id="result-repo">Repository Review</div>
+        <div id="result-verdict-chip"></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;" id="result-justification"></div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-num" id="stat-findings">—</div>
+        <div class="stat-label">Total Findings</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-files">—</div>
+        <div class="stat-label">Files Reviewed</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-loc">—</div>
+        <div class="stat-label">Lines of Code</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-confidence">—</div>
+        <div class="stat-label">Confidence</div>
+      </div>
+    </div>
+
+    <!-- Severity summary -->
+    <div class="sev-row" id="sev-row"></div>
+
+    <!-- Top findings preview -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:10px;">Critical & High Findings</div>
+      <div id="findings-preview"></div>
+    </div>
+
+    <!-- Download buttons -->
+    <div class="dl-row">
+      <button class="btn btn-primary" id="btn-dl-html" onclick="downloadHtml()">
+        ⬇ Download Full HTML Report
+      </button>
+      <button class="btn btn-ghost" id="btn-dl-json" onclick="downloadJson()">
+        ⬇ Download JSON
+      </button>
+      <button class="btn btn-ghost" onclick="resetUI()">
+        ↩ Review Another
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toasts"></div>
+
+<footer>Made with IBM Bob &mdash; Enterprise Code Review Automation</footer>
+
+<script>
+  const API = window.location.origin;
+  let activeTab = 'url';
+  let currentJobId = null;
+  let selectedFile = null;
+  let pollTimer = null;
+  let progressPct = 5;
+
+  // ── Tab switch ─────────────────────────────────────────────
+  function switchTab(tab) {
+    activeTab = tab;
+    document.getElementById('tab-url').classList.toggle('active', tab === 'url');
+    document.getElementById('tab-zip').classList.toggle('active', tab === 'zip');
+    document.getElementById('panel-url').style.display = tab === 'url' ? '' : 'none';
+    document.getElementById('panel-zip').style.display = tab === 'zip' ? '' : 'none';
+  }
+
+  // ── File select ────────────────────────────────────────────
+  function handleFileSelect(event) {
+    const f = event.target.files[0];
+    if (f) selectFile(f);
+  }
+  function handleDrop(event) {
+    event.preventDefault();
+    document.getElementById('drop-zone').classList.remove('dragover');
+    const f = event.dataTransfer.files[0];
+    if (f && f.name.endsWith('.zip')) selectFile(f);
+    else toast('Please drop a .zip file', 'error');
+  }
+  function selectFile(f) {
+    selectedFile = f;
+    document.getElementById('upload-text').textContent = `Selected: ${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`;
+    document.getElementById('btn-review-zip').disabled = false;
+  }
+
+  // ── Toast ──────────────────────────────────────────────────
+  function toast(msg, type='success') {
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = (type === 'success' ? '✓ ' : '✗ ') + msg;
+    document.getElementById('toasts').appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  // ── Start review (URL) ─────────────────────────────────────
+  async function startReview() {
+    const url = document.getElementById('repo-url').value.trim();
+    if (!url) { toast('Please enter a GitHub or GitLab URL', 'error'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(API + '/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_type: 'github', url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      currentJobId = data.job_id;
+      startPolling();
+    } catch(e) {
+      showError(e.message);
+    }
+  }
+
+  // ── Start review (ZIP) ─────────────────────────────────────
+  async function startZipReview() {
+    if (!selectedFile) { toast('Please select a zip file', 'error'); return; }
+    const repoName = document.getElementById('zip-repo-name').value.trim() || selectedFile.name.replace('.zip','');
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('repo_name', repoName);
+      const res = await fetch(API + '/api/review/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      currentJobId = data.job_id;
+      startPolling();
+    } catch(e) {
+      showError(e.message);
+    }
+  }
+
+  // ── Polling ────────────────────────────────────────────────
+  const PROGRESS_STEPS = [
+    'Fetching repository…', 'Collecting repository statistics…',
+    'Building review prompt…', 'Sending code to Claude for analysis…',
+    'Parsing AI review output…', 'Assembling final report…', 'Review complete!'
+  ];
+
+  function startPolling() {
+    progressPct = 5;
+    pollTimer = setInterval(pollStatus, 2000);
+  }
+
+  async function pollStatus() {
+    if (!currentJobId) return;
+    try {
+      const res = await fetch(API + '/api/review/' + currentJobId);
+      const data = await res.json();
+      const statusEl = document.getElementById('progress-status');
+      const barEl    = document.getElementById('progress-bar');
+
+      if (data.progress) statusEl.textContent = data.progress;
+
+      // Advance progress bar
+      const stepIdx = PROGRESS_STEPS.findIndex(s => data.progress && data.progress.startsWith(s.slice(0,20)));
+      if (stepIdx >= 0) progressPct = Math.max(progressPct, 10 + stepIdx * 15);
+      progressPct = Math.min(progressPct + 2, 90);
+      barEl.style.width = progressPct + '%';
+
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        barEl.style.width = '100%';
+        setTimeout(() => showResult(data.report), 400);
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer);
+        showError(data.error || 'Unknown error');
+      }
+    } catch(e) {
+      // network hiccup — keep polling
+    }
+  }
+
+  // ── Show result ────────────────────────────────────────────
+  function showResult(report) {
+    document.getElementById('progress-card').classList.remove('show');
+    document.getElementById('result-card').classList.add('show');
+
+    const score = report.overall_score || 0;
+    const scoreEl = document.getElementById('result-score');
+    scoreEl.textContent = score.toFixed(1);
+    scoreEl.className = 'result-score ' + (score >= 7 ? 'score-good' : score >= 4 ? 'score-mid' : 'score-low');
+
+    document.getElementById('result-repo').textContent = report.repo_name || 'Repository';
+    document.getElementById('result-justification').textContent = report.verdict_justification || '';
+
+    // Verdict chip
+    const verdict = report.final_verdict || '';
+    const cls = verdict.includes('Enterprise Ready') || verdict === 'Production Ready'
+      ? 'verdict-pass'
+      : verdict.includes('Minor') ? 'verdict-warn' : 'verdict-fail';
+    document.getElementById('result-verdict-chip').innerHTML =
+      `<span class="result-verdict ${cls}">${escHtml(verdict)}</span>`;
+
+    // Stats
+    document.getElementById('stat-findings').textContent = (report.findings || []).length;
+    document.getElementById('stat-files').textContent    = report.file_count || 0;
+    document.getElementById('stat-loc').textContent      = (report.estimated_loc || 0).toLocaleString();
+    document.getElementById('stat-confidence').textContent = (report.confidence_pct || 0) + '%';
+
+    // Severity chips
+    const sevCounts = { Critical:0, High:0, Medium:0, Low:0, Informational:0 };
+    (report.findings || []).forEach(f => { if (sevCounts[f.severity] !== undefined) sevCounts[f.severity]++; });
+    const sevRow = document.getElementById('sev-row');
+    sevRow.innerHTML = Object.entries(sevCounts)
+      .filter(([,n]) => n > 0)
+      .map(([s,n]) => `<span class="sev-chip sev-${s.toLowerCase()}">${escHtml(s)}: ${n}</span>`)
+      .join('');
+
+    // Top critical/high findings preview
+    const topFindings = (report.findings || []).filter(f => f.severity === 'Critical' || f.severity === 'High').slice(0, 5);
+    const prevEl = document.getElementById('findings-preview');
+    if (topFindings.length === 0) {
+      prevEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">No critical or high findings 🎉</div>';
+    } else {
+      prevEl.innerHTML = topFindings.map(f => `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                    padding:10px 14px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span class="sev-chip sev-${f.severity.toLowerCase()}">${escHtml(f.severity)}</span>
+            <span style="font-size:12px;color:var(--muted);">${escHtml(f.id)}</span>
+            <span style="font-size:13px;font-weight:600;">${escHtml(f.description.slice(0,100))}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);">${escHtml(f.recommendation.slice(0,150))}…</div>
+        </div>`).join('');
+    }
+
+    toast('Review complete!');
+  }
+
+  // ── Error display ──────────────────────────────────────────
+  function showError(msg) {
+    document.getElementById('progress-card').classList.remove('show');
+    document.getElementById('error-card').classList.add('show');
+    document.getElementById('error-msg').textContent = msg;
+    setLoading(false);
+  }
+
+  // ── UI helpers ─────────────────────────────────────────────
+  function setLoading(on) {
+    document.getElementById('btn-review-url').disabled = on;
+    document.getElementById('btn-review-zip').disabled = on || !selectedFile;
+    document.getElementById('input-card').style.display = on ? 'none' : '';
+    document.getElementById('progress-card').classList.toggle('show', on);
+  }
+
+  function resetUI() {
+    clearInterval(pollTimer);
+    currentJobId = null;
+    progressPct = 5;
+    document.getElementById('input-card').style.display = '';
+    document.getElementById('progress-card').classList.remove('show');
+    document.getElementById('result-card').classList.remove('show');
+    document.getElementById('error-card').classList.remove('show');
+    document.getElementById('progress-bar').style.width = '5%';
+    document.getElementById('btn-review-url').disabled = false;
+    if (selectedFile) document.getElementById('btn-review-zip').disabled = false;
+  }
+
+  // ── Downloads ──────────────────────────────────────────────
+  function downloadHtml() {
+    if (!currentJobId) return;
+    window.location.href = API + '/api/review/' + currentJobId + '/html';
+  }
+  function downloadJson() {
+    if (!currentJobId) return;
+    const a = document.createElement('a');
+    a.href = API + '/api/review/' + currentJobId + '/json';
+    a.download = 'review_report.json';
+    a.click();
+  }
+
+  // ── Escape helper ──────────────────────────────────────────
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>

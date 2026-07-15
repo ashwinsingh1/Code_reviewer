@@ -1,0 +1,13 @@
+feat: initial commit — Enterprise Code Review Automation
+
+- FastAPI backend with async job queue (server.py)
+- Claude-3.5-Sonnet AI review engine (reviewer.py)
+- GitHub/GitLab URL + zip file ingestion (ingestion.py)
+- Pydantic models for findings, scorecard, report (models.py)
+- Self-contained HTML report builder (report_builder.py)
+- Single-page Web UI with live progress + download (index.html)
+- Settings via .env / environment variables (config.py)
+- Pinned requirements.txt + pyproject.toml with ruff config
+- 17 pytest tests: ingestion, server API, report cycle (tests/)
+- Windows launcher (run.bat)
+- .env.example template — ANTHROPIC_API_KEY required

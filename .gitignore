@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Environment / secrets  ← NEVER commit this
+.env
+
+# Logs
+*.log
+code_reviewer.log
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dist / build artifacts
+*.whl
+*.tar.gz
